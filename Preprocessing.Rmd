@@ -1,0 +1,86 @@
+---
+title: "[LearnLab10] Preprocessing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+```
+
+## Reading the Transactions Data
+
+We read the transactions from the two data files, remove one extra column from `SV` (column 35) and concatenate:
+```{r read, cache=TRUE}
+HW <- read.csv('data/Hopewell2015.csv', header=TRUE, as.is=TRUE)
+SV <- read.csv('data/SV2015.csv', header=TRUE, as.is=TRUE)
+
+# Remove extra column
+SV <- SV[,-35]
+
+# Stack data frames into one
+df <- rbind(HW, SV)
+```
+
+We now have a dataframe with `r dim(df)[1]` rows (transactions) and `r dim(df)[2]` columns (variables). We remove all the transactions corresponding to demographic questions:
+```{r demographic}
+df <- df[-grep('demographic', df$ProblemName, ignore.case = TRUE),]
+```
+
+We also remove duplicate transactions (if any) and students from the blacklist:
+```{r blacklist}
+blacklist <- read.csv('data/StudentBlacklist', sep=";", as.is=TRUE,
+                      header=FALSE)[,1]
+
+df <- df %>% distinct() %>%
+  filter(!toupper(Anon.Student.Id) %in% blacklist)
+```
+
+Finally, we remove extra Test students that were not in the blacklist:
+```{r moretest}
+# Can probably be done using 'filter' in dplyr
+itest <- grep('^Test', df$Anon.Student.Id, perl=TRUE, invert=TRUE)
+df <- df[itest,]
+
+Student.list <- unique(df$Anon.Student.Id)
+```
+
+The dataframe now has `r dim(df)[1]` transactions and `r dim(df)[2]` variables.
+
+## Compute the enjoyment score, per student
+
+[tbc]
+
+## Computing the correct rate per student
+
+We define a function that computes the correctness rate per student and apply it to all students, through the `Outcome` variable (using the `dplyr` package):
+```{r correctrate}
+correct.rate <- function(v) {
+  inco <- length(grep('incorrect', v, ignore.case=TRUE))
+  all <- length(grep('correct', v, ignore.case=TRUE))
+  (all-inco)/all
+}
+
+student.outcome <- df %>% group_by(Anon.Student.Id) %>% summarise( correct.rate(Outcome))
+```
+
+## Retrieving the condition for each student
+
+The condition is "game" (=1) or "non game" (=0). We proceed as before using a function that inspects the `Condition.Name` variable:
+```{r condition}
+nongame <- function(v) {
+  ifelse( length(grep('^NonGame', v, perl=TRUE))>1, 0, 1)
+}
+
+student.condition <- df %>% group_by(Anon.Student.Id) %>% summarise( nongame(Condition.Name))
+```
+
+## Save results
+
+We build a dataframe with correct rate and condition, per student, and save it:
+```{r save}
+student.df <- data.frame(Student=student.outcome$Anon.Student.Id,
+                         Outcome=student.outcome$`correct.rate(Outcome)`,
+                         Condition=student.condition$`nongame(Condition.Name)`) 
+write.csv(student.df, "../StudentOutcome.csv")
+```
